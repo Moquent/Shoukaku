@@ -74,6 +74,10 @@ export class Connection extends EventEmitter {
 	 */
 	public state: State;
 	/**
+	 * Tracks the last emitted ready key to avoid duplicate emits
+	 */
+	private lastReadyKey: string | null;
+	/**
 	 * @param manager The manager of this connection
 	 * @param options The options to pass in connection creation
 	 * @param options.guildId GuildId in which voice channel to connect to is located
@@ -96,6 +100,7 @@ export class Connection extends EventEmitter {
 		this.lastRegion = null;
 		this.serverUpdate = null;
 		this.state = State.DISCONNECTED;
+		this.lastReadyKey = null;
 	}
 
 	/**
@@ -127,6 +132,7 @@ export class Connection extends EventEmitter {
 		this.channelId = null;
 		this.deafened = false;
 		this.muted = false;
+		this.lastReadyKey = null;
 		this.removeAllListeners();
 		this.sendVoiceUpdate();
 		this.state = State.DISCONNECTED;
@@ -181,7 +187,7 @@ export class Connection extends EventEmitter {
 		this.channelId = channel_id ?? null;
 
 		if (this.channelId && this.lastChannelId !== this.channelId) {
-			this.debug(`[Voice] <- [Discord] : Channel Moved | Old Channel: ${this.channelId} Guild: ${this.guildId}`);
+			this.debug(`[Voice] <- [Discord] : Channel Moved | Old Channel: ${this.lastChannelId} Guild: ${this.guildId}`);
 		}
 
 		if (!this.channelId) {
@@ -192,6 +198,7 @@ export class Connection extends EventEmitter {
 		this.deafened = self_deaf;
 		this.muted = self_mute;
 		this.sessionId = session_id ?? null;
+		this.tryEmitSessionReady();
 		this.debug(`[Voice] <- [Discord] : State Update Received | Channel: ${this.channelId} Session ID: ${session_id} Guild: ${this.guildId}`);
 	}
 
@@ -204,10 +211,6 @@ export class Connection extends EventEmitter {
 			this.emit('connectionUpdate', VoiceState.SESSION_ENDPOINT_MISSING);
 			return;
 		}
-		if (!this.sessionId) {
-			this.emit('connectionUpdate', VoiceState.SESSION_ID_MISSING);
-			return;
-		}
 
 		this.lastRegion = this.region?.repeat(1) ?? null;
 		this.region = data.endpoint.split('.').shift()?.replace(/[0-9]/g, '') ?? null;
@@ -217,8 +220,16 @@ export class Connection extends EventEmitter {
 		}
 
 		this.serverUpdate = data;
-		this.emit('connectionUpdate', VoiceState.SESSION_READY);
+		this.tryEmitSessionReady();
 		this.debug(`[Voice] <- [Discord] : Server Update Received | Server: ${this.region} Guild: ${this.guildId}`);
+	}
+
+	private tryEmitSessionReady(): void {
+		if (!this.sessionId || !this.serverUpdate?.endpoint) return;
+		const readyKey = `${this.sessionId}:${this.serverUpdate.endpoint}`;
+		if (this.lastReadyKey === readyKey) return;
+		this.lastReadyKey = readyKey;
+		this.emit('connectionUpdate', VoiceState.SESSION_READY);
 	}
 
 	/**

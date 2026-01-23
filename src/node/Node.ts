@@ -248,10 +248,12 @@ export class Node extends TypedEventEmitter<NodeEvents> {
 		};
 
 		let connectError: Error | undefined;
+		const maxTries = Math.max(1, this.manager.options.reconnectTries);
 
-		for (this.reconnects = 0; this.reconnects < this.manager.options.reconnectTries; this.reconnects++) {
+		for (this.reconnects = 0; this.reconnects < maxTries; this.reconnects++) {
 			try {
 				this.ws = await createConnection();
+				connectError = undefined;
 				break;
 			} catch (error) {
 				this.emit('reconnecting', this.manager.options.reconnectTries - this.reconnects, this.manager.options.reconnectInterval);
@@ -261,7 +263,7 @@ export class Node extends TypedEventEmitter<NodeEvents> {
 			}
 		}
 
-		if (connectError) {
+		if (connectError || !this.ws) {
 			this.state = State.DISCONNECTED;
 			this.cleanupWebsocket();
 			let count = 0;
@@ -270,7 +272,7 @@ export class Node extends TypedEventEmitter<NodeEvents> {
 			}
 			this.emit('disconnect', count);
 			// Should I throw or not? :confusion:
-			throw connectError;
+			throw connectError ?? new Error('Websocket failed to connect after all attempts');
 		}
 
 		this.ws!.once('upgrade', response => this.open(response));
@@ -319,8 +321,15 @@ export class Node extends TypedEventEmitter<NodeEvents> {
      * @internal
      */
 	private async message(message: unknown): Promise<void> {
+		const payload = typeof message === 'string'
+			? message
+			: message instanceof ArrayBuffer
+				? Buffer.from(message).toString('utf8')
+				: Buffer.isBuffer(message)
+					? message.toString('utf8')
+					: String(message);
 		// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-		const json: Ready | Stats | PlayerUpdate | TrackStartEvent | TrackEndEvent | TrackStuckEvent | TrackExceptionEvent | WebSocketClosedEvent = JSON.parse(message as string);
+		const json: Ready | Stats | PlayerUpdate | TrackStartEvent | TrackEndEvent | TrackStuckEvent | TrackExceptionEvent | WebSocketClosedEvent = JSON.parse(payload);
 		if (!json) return;
 		this.emit('raw', json);
 		switch (json.op) {
@@ -383,6 +392,11 @@ export class Node extends TypedEventEmitter<NodeEvents> {
 	private async close(code: number, reason: Buffer): Promise<void> {
 		this.emit('close', code, String(reason));
 		this.emit('debug', `[Socket] <-/-> [${this.name}] : Connection Closed, Code: ${code || 'Unknown Code'}`);
+		if (this.state === State.DISCONNECTING) {
+			this.state = State.DISCONNECTED;
+			this.cleanupWebsocket();
+			return;
+		}
 
 		this.state = State.DISCONNECTING;
 
