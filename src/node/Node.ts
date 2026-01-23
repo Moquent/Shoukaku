@@ -442,7 +442,8 @@ export class Node extends TypedEventEmitter<NodeEvents> {
      * @internal
      */
 	private async movePlayers(): Promise<number> {
-		const players = [ ...this.manager.players.values() ];
+		const players = [ ...this.manager.players.values() ]
+			.filter(player => player.node?.name === this.name);
 		const data = await Promise.allSettled(players.map(player => player.move()));
 		return data.filter(results => results.status === 'fulfilled').length;
 	}

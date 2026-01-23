@@ -255,7 +255,11 @@ export class Player extends TypedEventEmitter<PlayerEvents> {
 		if (!lastNode || lastNode.state !== State.CONNECTED)
 			lastNode = this.node.manager.getIdealNode(connection);
 
-		await this.destroy();
+		try {
+			await this.destroy();
+		} catch {
+			// Ignore destroy failures when node is unavailable
+		}
 
 		try {
 			this.node = node;
