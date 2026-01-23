@@ -74,10 +74,6 @@ export class Connection extends EventEmitter {
 	 */
 	public state: State;
 	/**
-	 * Tracks the last emitted ready key to avoid duplicate emits
-	 */
-	private lastReadyKey: string | null;
-	/**
 	 * @param manager The manager of this connection
 	 * @param options The options to pass in connection creation
 	 * @param options.guildId GuildId in which voice channel to connect to is located
@@ -100,7 +96,6 @@ export class Connection extends EventEmitter {
 		this.lastRegion = null;
 		this.serverUpdate = null;
 		this.state = State.DISCONNECTED;
-		this.lastReadyKey = null;
 	}
 
 	/**
@@ -132,7 +127,6 @@ export class Connection extends EventEmitter {
 		this.channelId = null;
 		this.deafened = false;
 		this.muted = false;
-		this.lastReadyKey = null;
 		this.removeAllListeners();
 		this.sendVoiceUpdate();
 		this.state = State.DISCONNECTED;
@@ -185,9 +179,6 @@ export class Connection extends EventEmitter {
 	public setStateUpdate({ session_id, channel_id, self_deaf, self_mute }: StateUpdatePartial): void {
 		this.lastChannelId = this.channelId?.repeat(1) ?? null;
 		this.channelId = channel_id ?? null;
-		if (!session_id) {
-			this.emit('connectionUpdate', VoiceState.SESSION_ID_MISSING);
-		}
 
 		if (this.channelId && this.lastChannelId !== this.channelId) {
 			this.debug(`[Voice] <- [Discord] : Channel Moved | Old Channel: ${this.lastChannelId} Guild: ${this.guildId}`);
@@ -195,13 +186,16 @@ export class Connection extends EventEmitter {
 
 		if (!this.channelId) {
 			this.state = State.DISCONNECTED;
+			this.sessionId = null;
+			this.serverUpdate = null;
+			this.region = null;
+			this.lastRegion = null;
 			this.debug(`[Voice] <- [Discord] : Channel Disconnected | Guild: ${this.guildId}`);
 		}
 
 		this.deafened = self_deaf;
 		this.muted = self_mute;
 		this.sessionId = session_id ?? null;
-		this.tryEmitSessionReady();
 		this.debug(`[Voice] <- [Discord] : State Update Received | Channel: ${this.channelId} Session ID: ${session_id} Guild: ${this.guildId}`);
 	}
 
@@ -214,6 +208,10 @@ export class Connection extends EventEmitter {
 			this.emit('connectionUpdate', VoiceState.SESSION_ENDPOINT_MISSING);
 			return;
 		}
+		if (!this.sessionId) {
+			this.emit('connectionUpdate', VoiceState.SESSION_ID_MISSING);
+			return;
+		}
 
 		this.lastRegion = this.region?.repeat(1) ?? null;
 		this.region = data.endpoint.split('.').shift()?.replace(/[0-9]/g, '') ?? null;
@@ -223,16 +221,8 @@ export class Connection extends EventEmitter {
 		}
 
 		this.serverUpdate = data;
-		this.tryEmitSessionReady();
-		this.debug(`[Voice] <- [Discord] : Server Update Received | Server: ${this.region} Guild: ${this.guildId}`);
-	}
-
-	private tryEmitSessionReady(): void {
-		if (!this.sessionId || !this.serverUpdate?.endpoint || !this.channelId) return;
-		const readyKey = `${this.sessionId}:${this.serverUpdate.endpoint}`;
-		if (this.lastReadyKey === readyKey) return;
-		this.lastReadyKey = readyKey;
 		this.emit('connectionUpdate', VoiceState.SESSION_READY);
+		this.debug(`[Voice] <- [Discord] : Server Update Received | Server: ${this.region} Guild: ${this.guildId}`);
 	}
 
 	/**
