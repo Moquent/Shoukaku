@@ -214,7 +214,10 @@ export class Player extends TypedEventEmitter<PlayerEvents> {
 	}
 
 	public get data(): UpdatePlayerInfo {
-		const connection = this.node.manager.connections.get(this.guildId)!;
+		const connection = this.node.manager.connections.get(this.guildId);
+		if (!connection?.serverUpdate || !connection.sessionId) {
+			throw new Error('Voice connection is not ready for player update');
+		}
 		return {
 			guildId: this.guildId,
 			playerOptions: {
@@ -453,7 +456,7 @@ export class Player extends TypedEventEmitter<PlayerEvents> {
 
 		await this.node.rest.updatePlayer(data);
 
-		if (!noReplace) this.paused = false;
+		if (!noReplace && typeof playerOptions.track !== 'undefined') this.paused = false;
 
 		if (playerOptions.filters) {
 			this.filters = { ...this.filters, ...playerOptions.filters };

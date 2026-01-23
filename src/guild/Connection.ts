@@ -185,6 +185,9 @@ export class Connection extends EventEmitter {
 	public setStateUpdate({ session_id, channel_id, self_deaf, self_mute }: StateUpdatePartial): void {
 		this.lastChannelId = this.channelId?.repeat(1) ?? null;
 		this.channelId = channel_id ?? null;
+		if (!session_id) {
+			this.emit('connectionUpdate', VoiceState.SESSION_ID_MISSING);
+		}
 
 		if (this.channelId && this.lastChannelId !== this.channelId) {
 			this.debug(`[Voice] <- [Discord] : Channel Moved | Old Channel: ${this.lastChannelId} Guild: ${this.guildId}`);
@@ -225,7 +228,7 @@ export class Connection extends EventEmitter {
 	}
 
 	private tryEmitSessionReady(): void {
-		if (!this.sessionId || !this.serverUpdate?.endpoint) return;
+		if (!this.sessionId || !this.serverUpdate?.endpoint || !this.channelId) return;
 		const readyKey = `${this.sessionId}:${this.serverUpdate.endpoint}`;
 		if (this.lastReadyKey === readyKey) return;
 		this.lastReadyKey = readyKey;
